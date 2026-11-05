@@ -5,7 +5,7 @@
     async export() {
       U.toast('Menyiapkan backup…', 'info', 1500);
       const data = await DB.exportAll();
-      data.local = {}; Object.keys(localStorage).filter((k) => k.startsWith('edcc-') && k !== 'edcc-news-cache').forEach((k) => { data.local[k] = localStorage.getItem(k); });
+      data.local = {}; Object.keys(localStorage).filter((k) => k.startsWith('edcc-') && k !== 'edcc-news-cache' && !k.startsWith('edcc-fb:')).forEach((k) => { data.local[k] = localStorage.getItem(k); });
       const counts = Object.fromEntries(Object.entries(data.stores).map(([k, v]) => [k, v.length]));
       const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
       const d = new Date();

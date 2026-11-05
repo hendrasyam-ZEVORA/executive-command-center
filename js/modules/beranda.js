@@ -109,8 +109,8 @@
         if (e.target.closest('[data-notif]')) Alarm.requestNotif();
         if (e.target.closest('[data-goto]')) location.hash = '#/daily';
       });
-      // News
-      News.mount(U.$('#hNews', el));
+      // Football Hub (hasil, statistik, klasemen, berita bola)
+      Football.mount(U.$('#hNews', el));
 
       // Reaktif
       U.on('tick', (now) => { if (App.current === 'beranda') { this.paintClock(now); this.paintAlarm(false); } });
