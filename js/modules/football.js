@@ -1,6 +1,6 @@
 /* Football Hub (panel kanan Beranda) — pengganti panel berita umum.
    Data: ESPN public API (gratis, tanpa key, CORS terbuka) untuk hasil, statistik, klasemen & jadwal;
-         RSS Google News / Antara via rss2json untuk berita berbahasa Indonesia.
+         berita klub dari ESPN + RSS Antara Sepakbola (via rss2json).
    Fokus klub: FC Barcelona & AS Roma. Liga: LaLiga, Premier League, Serie A, Bundesliga.
    Cache ringkas di localStorage → tetap tampil saat offline. */
 (function () {
@@ -19,8 +19,6 @@
     { id: '104', name: 'AS Roma', short: 'Roma', league: 'ita.1', cups: ['uefa.europa', 'uefa.champions', 'uefa.europa.conf', 'ita.coppa_italia'], color: '#8e1f2f' },
   ];
   const NEWS_FEEDS = [
-    { club: '83', name: 'Google News · Barcelona', url: 'https://news.google.com/rss/search?q=FC+Barcelona&hl=id&gl=ID&ceid=ID:id' },
-    { club: '104', name: 'Google News · AS Roma', url: 'https://news.google.com/rss/search?q=AS+Roma&hl=id&gl=ID&ceid=ID:id' },
     { club: '', name: 'Antara Sepakbola', url: 'https://www.antaranews.com/rss/sepakbola.xml' },
   ];
   const STAT_ROWS = [
@@ -120,7 +118,7 @@
       }));
     },
     async loadResults(league, force) {
-      const days = Array.from({ length: 5 }, (_, i) => U.addDays(new Date(), -i)).map((d) => `${d.getFullYear()}${U.p2(d.getMonth() + 1)}${U.p2(d.getDate())}`);
+      const days = Array.from({ length: 8 }, (_, i) => U.addDays(new Date(), -i)).map((d) => `${d.getFullYear()}${U.p2(d.getMonth() + 1)}${U.p2(d.getDate())}`);
       const sets = await Promise.all(days.map((d, i) => get(`${API}${league}/scoreboard?dates=${d}`, i === 0 || force ? 2 : 180, mapEvents(league)).catch(() => [])));
       const upcoming = await get(`${API}${league}/scoreboard`, force ? 1 : 10, mapEvents(league)).catch(() => []);
       const byId = {}; [...sets.flat(), ...upcoming].forEach((e) => { byId[e.id] = e; });
@@ -149,6 +147,11 @@
           return { club: f.club, title, desc: /news\.google/.test(f.url) ? '' : strip(it.description).slice(0, 200), link: it.link, src, thumb, at: Date.parse((it.pubDate || '').replace(' ', 'T') + 'Z') || Date.now() };
         });
       }).catch(() => [])));
+      // Berita klub fokus dari ESPN (bahasa Inggris), disaring per klub
+      const espn = await Promise.all(CLUBS.map((club) => get(`${API}${club.league}/news?limit=50`, 30, (j) => (j.articles || [])
+        .filter((a) => (a.categories || []).some((c) => String(c.teamId || (c.team && c.team.id)) === club.id))
+        .slice(0, 8).map((a) => ({ club: club.id, title: a.headline, desc: (a.description || '').slice(0, 200), link: (a.links && a.links.web && a.links.web.href) || '', src: 'ESPN (EN)', thumb: (a.images && a.images[0] && a.images[0].url) || '', at: Date.parse(a.published) || Date.now() }))).catch(() => [])));
+      sets.push(...espn);
       const seen = new Set();
       this.data.news = sets.flat().filter((n) => { const k = n.title.toLowerCase().slice(0, 50); if (seen.has(k)) return false; seen.add(k); return true; }).sort((a, b) => b.at - a.at).slice(0, 20);
     },
@@ -173,7 +176,7 @@
       list.innerHTML = html || `<div class="empty">${icon('wifiOff', 22)}<b>Data belum tersedia</b>${navigator.onLine ? 'Coba muat ulang.' : 'Sedang offline — data tampil lagi saat online.'}</div>`;
       U.$$('img[data-fallback]', list).forEach((im) => { im.onerror = () => { im.style.visibility = 'hidden'; }; });
       const st = { ...this.status, ok: this.status.ok && !!html };
-      U.$('[data-fbfoot]', this.root).innerHTML = `<span><span class="dot ${st.ok && navigator.onLine ? 'live' : 'off'}"></span> ${st.ok ? (navigator.onLine ? 'Live' : 'Offline · cache') : 'Gagal memuat'} · ${U.fmtTime(new Date())}</span><span>ESPN${this.tab === 'news' ? ' · Google News · Antara' : ''}</span>`;
+      U.$('[data-fbfoot]', this.root).innerHTML = `<span><span class="dot ${st.ok && navigator.onLine ? 'live' : 'off'}"></span> ${st.ok ? (navigator.onLine ? 'Live' : 'Offline · cache') : 'Gagal memuat'} · ${U.fmtTime(new Date())}</span><span>ESPN${this.tab === 'news' ? ' · Antara' : ''}</span>`;
       this.loop();
     },
 
