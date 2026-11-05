@@ -10,13 +10,13 @@
     { id: 'lokal', label: 'Makassar & Cuaca', color: '#d97706' },
   ];
   const DEFAULT_FEEDS = [
-    { cat: 'bola', name: 'detik Sepakbola', url: 'https://rss.detik.com/index.php/sepakbola' },
+    { cat: 'bola', name: 'Antara Sepakbola', url: 'https://www.antaranews.com/rss/sepakbola.xml' },
     { cat: 'bola', name: 'CNN Indonesia Olahraga', url: 'https://www.cnnindonesia.com/olahraga/rss' },
     { cat: 'ekopol', name: 'CNN Indonesia Ekonomi', url: 'https://www.cnnindonesia.com/ekonomi/rss' },
     { cat: 'ekopol', name: 'CNN Indonesia Nasional', url: 'https://www.cnnindonesia.com/nasional/rss' },
-    { cat: 'ekopol', name: 'detikFinance', url: 'https://rss.detik.com/index.php/finance' },
-    { cat: 'lokal', name: 'Tribun Timur', url: 'https://makassar.tribunnews.com/rss' },
+    { cat: 'ekopol', name: 'CNBC Indonesia Market', url: 'https://www.cnbcindonesia.com/market/rss' },
     { cat: 'lokal', name: 'Antara Makassar', url: 'https://makassar.antaranews.com/rss/terkini.xml' },
+    { cat: 'lokal', name: 'Google News Makassar', url: 'https://news.google.com/rss/search?q=Makassar&hl=id&gl=ID&ceid=ID:id' },
   ];
   const MAKASSAR = { lat: -5.1477, lon: 119.4327 };
   const CACHE_KEY = 'edcc-news-cache';
@@ -25,13 +25,13 @@
 
   /* Contoh tampilan saat 100% offline — jelas ditandai CONTOH, bukan berita sungguhan */
   const SAMPLE = [
-    ['bola', 'Hasil pertandingan Liga Inggris tadi malam akan tampil di sini', 'Saat online, panel ini menarik skor & ulasan laga terbaru dari detik Sepakbola dan CNN Indonesia Olahraga, diurutkan dari hasil pertandingan paling baru.'],
+    ['bola', 'Hasil pertandingan Liga Inggris tadi malam akan tampil di sini', 'Saat online, panel ini menarik skor & ulasan laga terbaru dari Antara Sepakbola dan CNN Indonesia Olahraga, diurutkan dari hasil pertandingan paling baru.'],
     ['bola', 'Rekap skor Liga Champions dini hari & klasemen sementara', 'Berita berlabel hasil/skor/klasemen diprioritaskan di tab Sepakbola agar Anda langsung melihat hasil laga subuh tadi.'],
     ['bola', 'Kabar PSM Makassar dan Liga 1 Indonesia', 'Tambahkan feed klub atau portal bola favorit lewat tombol pengaturan feed.'],
-    ['ekopol', 'Pergerakan IHSG & nilai tukar rupiah hari ini', 'Ringkasan ekonomi harian dari CNN Indonesia Ekonomi dan detikFinance akan muncul di sini saat terhubung internet.'],
+    ['ekopol', 'Pergerakan IHSG & nilai tukar rupiah hari ini', 'Ringkasan ekonomi harian dari CNN Indonesia Ekonomi dan CNBC Indonesia akan muncul di sini saat terhubung internet.'],
     ['ekopol', 'Kebijakan harga & daya beli: dampaknya ke penjualan FMCG', 'Berita ekonomi makro yang relevan untuk memantau tren konsumsi ritel modern.'],
     ['ekopol', 'Agenda pemerintah dan kebijakan nasional terbaru', 'Feed nasional CNN Indonesia — klik "Baca selengkapnya" untuk membuka artikel di tab baru.'],
-    ['lokal', 'Berita terkini Kota Makassar dari Tribun Timur', 'Lalu lintas, pembangunan kota, dan peristiwa lokal Sulawesi Selatan.'],
+    ['lokal', 'Berita terkini Kota Makassar dari Antara Makassar', 'Lalu lintas, pembangunan kota, dan peristiwa lokal Sulawesi Selatan.'],
     ['lokal', 'Prakiraan cuaca Makassar hari ini', 'Kartu cuaca di atas tab ini diperbarui otomatis dari Open-Meteo saat online.'],
     ['ekopol', 'Update ritel modern: Indomaret, Alfamart & hypermarket', 'Tips: tambahkan feed Google News dengan kata kunci account Anda melalui pengaturan feed.'],
     ['lokal', 'Kegiatan & event di Makassar akhir pekan ini', 'Informasi lokal untuk perencanaan kunjungan toko dan event.'],
