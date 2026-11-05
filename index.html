@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Executive Daily Command Center</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%234f46e5'/%3E%3Cpath d='M9 17l4 4 10-10' stroke='white' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
+  <!-- Terapkan tema sebelum render agar tidak berkedip -->
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem('edcc-theme');
+        if (!t) t = window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        document.documentElement.setAttribute('data-theme', t);
+        if (localStorage.getItem('edcc-sidebar') === 'collapsed') document.documentElement.classList.add('sb-collapsed');
+      } catch (e) { document.documentElement.setAttribute('data-theme', 'light'); }
+    })();
+  </script>
+  <link rel="stylesheet" href="css/app.css" />
+</head>
+<body>
+  <div class="app">
+    <!-- ============ SIDEBAR ============ -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sb-head">
+        <div class="brand">
+          <div class="brand-logo">EC</div>
+          <div class="brand-text">
+            <div class="brand-title">Command Center</div>
+            <div class="brand-sub">Executive Daily Hub</div>
+          </div>
+        </div>
+        <button class="icon-btn sb-collapse" id="sbCollapse" title="Ciutkan / lebarkan sidebar"></button>
+      </div>
+      <nav class="sb-nav" id="sbNav"><!-- diisi oleh js/core/app.js dari App.MENUS --></nav>
+      <div class="sb-foot">
+        <div class="sb-alarm" id="sbAlarm" title="Alarm berikutnya"></div>
+        <button class="sb-item" id="themeToggle" title="Ganti tema terang/gelap"></button>
+      </div>
+    </aside>
+    <div class="sb-overlay" id="sbOverlay"></div>
+
+    <!-- ============ MAIN ============ -->
+    <div class="main">
+      <header class="mobile-bar">
+        <button class="icon-btn" id="sbOpen" title="Menu"></button>
+        <span class="mobile-title" id="mobileTitle">Beranda</span>
+      </header>
+
+      <!--
+        Setiap menu punya <section id="page-{id}">.
+        Modul JS mendaftar lewat App.register('{id}', {...}) dan merender ke section-nya.
+        Tahap 2 cukup menambah file js/modules/{id}.js — tanpa mengubah file lain.
+      -->
+      <main id="pages">
+        <section class="page" id="page-beranda"   data-page="beranda"></section>
+        <section class="page" id="page-daily"     data-page="daily"></section>
+        <section class="page" id="page-monthly"   data-page="monthly"></section>
+        <section class="page" id="page-account"   data-page="account"></section>
+        <section class="page" id="page-kalender"  data-page="kalender"></section>
+        <section class="page" id="page-program"   data-page="program"></section>
+        <section class="page" id="page-promo"     data-page="promo"></section>
+        <section class="page" id="page-event"     data-page="event"></section>
+        <section class="page" id="page-projek"    data-page="projek"></section>
+        <section class="page" id="page-gallery"   data-page="gallery"></section>
+        <section class="page" id="page-kontak"    data-page="kontak"></section>
+        <section class="page" id="page-shop"      data-page="shop"></section>
+      </main>
+    </div>
+  </div>
+
+  <div id="modalRoot"></div>
+  <div id="toastRoot" class="toast-root"></div>
+
+  <!-- Core (urutan penting) -->
+  <script src="js/core/icons.js"></script>
+  <script src="js/core/utils.js"></script>
+  <script src="js/core/db.js"></script>
+  <script src="js/core/xlsx.js"></script>
+  <script src="js/core/barchart.js"></script>
+  <script src="js/core/app.js"></script>
+
+  <!-- Data & mesin -->
+  <script src="js/modules/daily.js"></script>
+  <script src="js/modules/monthly.js"></script>
+  <script src="js/modules/account.js"></script>
+  <script src="js/core/alarm.js"></script>
+  <script src="js/modules/sales.js"></script>
+  <script src="js/modules/news.js"></script>
+  <script src="js/modules/beranda.js"></script>
+
+  <!-- Tahap 2: Menu 5–12 -->
+  <script src="js/modules/kalender.js"></script>
+  <script src="js/modules/program.js"></script>
+  <script src="js/modules/promo.js"></script>
+  <script src="js/modules/event.js"></script>
+  <script src="js/modules/projek.js"></script>
+  <script src="js/modules/gallery.js"></script>
+  <script src="js/modules/kontak.js"></script>
+  <script src="js/modules/shop.js"></script>
+  <script src="js/core/backup.js"></script>
+
+  <!-- Placeholder hanya dipakai bila modul di atas belum ada -->
+  <script src="js/modules/placeholders.js"></script>
+
+  <script>App.boot();</script>
+</body>
+</html>

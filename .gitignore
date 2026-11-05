@@ -1,0 +1,10 @@
+# Data kerja jangan masuk repo
+*.xlsx
+*.xls
+*.csv
+*.ics
+*.pdf
+edcc-backup-*.json
+*.zip
+.DS_Store
+Thumbs.db
