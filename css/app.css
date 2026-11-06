@@ -838,3 +838,10 @@ html.sb-collapsed .sb-backup-age { display: none; }
 .kpi-extra { font-size: 11.5px; color: var(--muted); margin-top: -4px; }
 .kpi-extra b { color: var(--text-2); font-weight: 600; }
 .acc-table tr.notarget td { color: var(--muted); }
+.sb-sync.warn { border-color: var(--warn); color: var(--warn); }
+.sb-sync.bad { border-color: var(--bad); color: var(--bad); }
+.sb-sync.muted { color: var(--muted); }
+.i.spin { animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.setup-steps { margin: 8px 0 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; font-size: 13px; line-height: 1.5; }
+.setup-steps code { font-size: 12px; background: var(--surface-2); padding: 1px 5px; border-radius: 4px; }

@@ -35,6 +35,8 @@
             try {
               if (unlocked) { DB.key = unlocked.dek; await DB.setLockMeta(unlocked.meta); }
               await DB.importAll(plain, { replace: true });
+              localStorage.setItem('edcc-sync-force', '1'); // hasil restore menjadi acuan saat sinkron berikutnya
+              localStorage.removeItem('edcc-tombs');
               Object.entries(plain.local || json.local || {}).forEach(([k, v]) => localStorage.setItem(k, v));
               U.toast('Restore berhasil — memuat ulang…', 'good');
               setTimeout(() => location.reload(), 900);

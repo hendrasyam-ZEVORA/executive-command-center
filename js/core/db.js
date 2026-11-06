@@ -84,27 +84,35 @@
     return obj;
   }
 
+  /* Pemberitahuan perubahan → dipakai modul Sinkron (js/core/sync.js) */
+  function changed(store, id, deleted = false) { try { DB.onChange && DB.onChange(store, id, deleted); } catch (e) { console.warn(e); } }
+
   const DB = {
-    STORES, META, C,
+    STORES, META, C, onChange: null, seal, open_,
     key: null, // CryptoKey (DEK) setelah dibuka
     open,
     rawAll, rawGet, rawPutMany,
     async all(store) { return Promise.all((await rawAll(store)).map((r) => open_(store, r))); },
     async get(store, id) { return open_(store, await rawGet(store, id)); },
-    async put(store, obj) { if (!obj.id && store !== 'kv') obj.id = U.uid(); if (store !== 'kv') obj.updatedAt = Date.now(); const s = await seal(store, obj); await tx(store, 'readwrite', (os) => os.put(s)); return obj; },
-    async putMany(store, arr) { const sealed = await Promise.all(arr.map((o) => seal(store, o))); await rawPutMany(store, sealed); },
-    async del(store, id) { await tx(store, 'readwrite', (s) => s.delete(id)); },
+    async put(store, obj, { silent = false } = {}) { if (!obj.id && store !== 'kv') obj.id = U.uid(); obj.updatedAt = Date.now(); const s = await seal(store, obj); await tx(store, 'readwrite', (os) => os.put(s)); if (!silent) changed(store, store === 'kv' ? obj.key : obj.id); return obj; },
+    /* keepTime: pertahankan updatedAt (dipakai sinkron/restore); silent: tanpa memicu sinkron */
+    async putMany(store, arr, { keepTime = false, silent = false } = {}) {
+      const now = Date.now(); if (!keepTime) arr.forEach((o) => { o.updatedAt = now; });
+      const sealed = await Promise.all(arr.map((o) => seal(store, o))); await rawPutMany(store, sealed);
+      if (!silent) arr.forEach((o) => changed(store, store === 'kv' ? o.key : o.id));
+    },
+    async del(store, id, { silent = false } = {}) { await tx(store, 'readwrite', (s) => s.delete(id)); if (!silent) changed(store, id, true); },
     async clear(store) { await tx(store, 'readwrite', (s) => s.clear()); },
 
     kv: {
       async get(key, def = null) { const r = await DB.get('kv', key); return r ? r.value : def; },
       async set(key, value) { await DB.put('kv', { key, value }); },
-      async del(key) { await tx('kv', 'readwrite', (s) => s.delete(key)); },
+      async del(key) { await tx('kv', 'readwrite', (s) => s.delete(key)); changed('kv', key, true); },
     },
 
     /* ---- metadata kunci ---- */
     async lockMeta() { return rawGet(META, 'main'); },
-    async setLockMeta(m) { if (m) await tx(META, 'readwrite', (s) => s.put({ ...m, id: 'main' })); else await tx(META, 'readwrite', (s) => s.delete('main')); },
+    async setLockMeta(m, { silent = false } = {}) { if (m) await tx(META, 'readwrite', (s) => s.put({ ...m, id: 'main' })); else await tx(META, 'readwrite', (s) => s.delete('main')); if (!silent) changed(META, 'main', !m); },
     /* Enkripsi ulang SEMUA data: oldKey → newKey (null = polos). Dipakai saat aktifkan / matikan kunci */
     async reseal(oldKey, newKey) {
       for (const s of STORES) {
@@ -121,6 +129,7 @@
       const rec = { id: 'f_' + U.uid(), name: name || file.name || 'lampiran', type: file.type || 'application/octet-stream', size: file.size, blob: file, createdAt: Date.now() };
       const s = await seal('files', rec);
       await tx('files', 'readwrite', (os) => os.put(s));
+      changed('files', rec.id);
       return rec.id;
     },
     async fileMeta(id) { const r = await open_('files', await rawGet('files', id), { metaOnly: true }); return r ? { id: r.id, name: r.name, type: r.type, size: r.size } : null; },
@@ -168,7 +177,7 @@
         const rows = json.stores[s]; if (!rows) continue;
         if (replace) await DB.clear(s);
         const fixed = s === 'files' ? await Promise.all(rows.map(async (r) => ({ ...r, blob: await (await fetch(r.blob)).blob() }))) : rows;
-        await DB.putMany(s, fixed);
+        await DB.putMany(s, fixed, { keepTime: true, silent: true });
       }
     },
   };

@@ -49,6 +49,7 @@
       window.addEventListener('hashchange', () => this.route());
       this.route();
       this.startClock();
+      if (window.Sync) Sync.afterBoot();
       U.on('data', () => this.refreshBadges());
       this.refreshBadges();
       if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
@@ -91,6 +92,15 @@
         if (e.target.closest('input, textarea, [contenteditable="true"], select')) return;
         if (e.altKey && /^[1-9]$/.test(e.key)) { const ids = MENUS.filter((m) => m.id); const m = ids[+e.key - 1]; if (m) location.hash = '#/' + m.id; }
       });
+    },
+
+    /* Muat ulang data semua modul dari database (dipakai setelah sinkron menerima perubahan) */
+    async reloadData() {
+      for (const [id, m] of Object.entries(this.modules)) { if (m.load) { try { await m.load(); } catch (e) { console.error('reload ' + id, e); } } }
+      U.emit('sales'); U.emit('data', {});
+      const mod = this.modules[this.current]; const el = U.$('#page-' + this.current);
+      if (mod && mod.onShow && this.rendered[this.current]) mod.onShow(el);
+      this.refreshBadges();
     },
 
     theme() { return document.documentElement.getAttribute('data-theme'); },

@@ -28,6 +28,7 @@ Dashboard kerja harian yang berjalan **100% offline di browser**. Tidak perlu se
 | 11. Kontak & Bank Email | Direktori Internal / Distributor / Buyer Account / Vendor, WA 1-klik, salin email, mailto, salin semua email, impor PIC dari Account |
 | 12. SHOP | Wishlist & rencana belanja, prioritas, link toko (Tokopedia/Shopee terdeteksi), total estimasi otomatis |
 | Kunci Data | Password + **enkripsi AES-256** semua data di browser, layar kunci, kunci otomatis saat tidak aktif, kode pemulihan, backup ikut terenkripsi |
+| Sinkron Google Drive | Data sama di laptop & HP: disimpan di folder aplikasi tersembunyi Google Drive Anda, **terenkripsi** dengan kunci data (Google tidak bisa membaca), otomatis ±10 detik setelah perubahan |
 | Backup / Restore | Tombol di bawah sidebar: semua data termasuk gambar & PDF jadi 1 file JSON; pengingat bila belum backup ≥ 7 hari |
 
 Pintasan: `Alt+1` … `Alt+9` untuk pindah menu · `Ctrl+Enter` simpan modal · `Esc` tutup.
@@ -70,3 +71,9 @@ Jangan commit file backup ke repo publik: isinya data kerja & kontak.
 - Data hanya tersimpan di browser perangkat Anda (IndexedDB); repo & situs GitHub Pages hanya berisi kode.
 - Sidebar → **Aktifkan kunci data**: semua record dienkripsi AES-256-GCM. Kunci data dibungkus dengan password (PBKDF2-SHA256, 310.000 iterasi) dan dengan kode pemulihan. Password & kode tidak disimpan.
 - Lupa password → layar kunci → "Lupa password? Pakai kode pemulihan". Tanpa password **dan** kode pemulihan, data tidak bisa dibuka siapa pun.
+
+## Sinkron HP & laptop (Google Drive)
+1. Perangkat utama: aktifkan **Kunci Data**, lalu sidebar → **Sinkron HP & laptop** → tempel *Google OAuth Client ID* → **Hubungkan Google Drive**.
+2. HP: buka situs yang sama → **Sinkron HP & laptop** → Client ID yang sama → **Hubungkan** → masukkan password dashboard dari perangkat utama.
+3. Selanjutnya otomatis: perubahan dikirim ±10 detik setelah diedit, dan diambil saat dashboard dibuka/difokuskan (serta tiap 5 menit).
+Client ID dibuat sekali di Google Cloud Console (Google Drive API + OAuth client *Web application* dengan origin situs ini, scope `drive.appdata`).
