@@ -783,3 +783,26 @@ html.sb-collapsed .sb-backup-age { display: none; }
 .fb-sbar span { display: block; height: 100%; border-radius: 99px; }
 .fb-sbar .h { background: var(--accent); margin-left: auto; }
 .fb-sbar .a { background: var(--good); }
+
+/* ============ Kunci Data ============ */
+.lockscreen { position: fixed; inset: 0; z-index: 500; display: grid; place-items: center; padding: 20px;
+  background: radial-gradient(1200px 600px at 20% 0%, color-mix(in srgb, var(--accent) 22%, transparent), transparent), radial-gradient(900px 500px at 100% 100%, color-mix(in srgb, var(--good) 18%, transparent), transparent), var(--bg);
+  backdrop-filter: blur(18px); animation: fadeIn .2s; }
+.lockscreen.out { opacity: 0; transition: opacity .2s; }
+.ls-box { width: 100%; max-width: 380px; display: flex; flex-direction: column; align-items: center; gap: 22px; }
+.ls-clock { text-align: center; }
+.ls-time { font-family: var(--mono); font-size: 56px; font-weight: 650; letter-spacing: -.03em; line-height: 1; }
+.ls-date { color: var(--muted); margin-top: 6px; }
+.ls-card { width: 100%; background: var(--surface); border: 1px solid var(--border); border-radius: 16px; box-shadow: var(--shadow-lg); padding: 22px; display: flex; flex-direction: column; gap: 10px; }
+.ls-card.shake { animation: shake .35s; }
+@keyframes shake { 20%, 60% { transform: translateX(-6px); } 40%, 80% { transform: translateX(6px); } }
+.ls-ic { width: 44px; height: 44px; border-radius: 12px; background: var(--accent-soft); color: var(--accent); display: grid; place-items: center; align-self: center; }
+.ls-t { font-size: 17px; font-weight: 700; text-align: center; }
+.ls-s { font-size: 13px; color: var(--muted); text-align: center; margin-top: -4px; }
+.ls-form { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
+.ls-form .input { height: 40px; }
+.ls-err { color: var(--bad); font-size: 12.5px; min-height: 16px; text-align: center; }
+.ls-foot { font-size: 12px; color: var(--muted); display: flex; gap: 6px; align-items: center; }
+.rc-code { font-size: 20px; font-weight: 700; letter-spacing: .06em; text-align: center; padding: 16px; border: 2px dashed var(--accent); border-radius: 10px; background: var(--accent-soft); color: var(--accent-text); user-select: all; word-break: break-all; }
+.sb-warn { color: var(--warn) !important; border: 1px dashed color-mix(in srgb, var(--warn) 50%, transparent) !important; }
+#sbLock { display: flex; flex-direction: column; }

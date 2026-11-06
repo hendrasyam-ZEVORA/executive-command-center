@@ -39,6 +39,7 @@
       this.bindChrome();
       try {
         await DB.open();
+        await Lock.gate(); // minta password bila kunci data aktif (sebelum data dibaca)
         for (const [id, m] of Object.entries(this.modules)) {
           if (m.load) { try { await m.load(); } catch (e) { console.error('load ' + id, e); } }
         }
