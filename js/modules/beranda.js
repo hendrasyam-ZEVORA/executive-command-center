@@ -39,11 +39,6 @@
         </div>
         <div class="kpi-row" id="hKpi"></div>
         <div class="sales-note" id="hSalesNote"></div>
-        <div class="card" id="hAccCard" style="margin-bottom:22px">
-          <div class="card-h"><div><div class="card-t">${icon('building', 16)}Performance <span class="seg" id="hAccView" style="margin-left:6px"><button data-v="dist">Per Distributor</button><button data-v="acct">Per Account</button></span></div><div class="card-s" id="hAccSub"></div></div>
-            <div class="seg" id="hAccSort"><button data-s="target">Target</button><button data-s="ach">% Ach</button><button data-s="gap">Gap</button></div></div>
-          <div class="acc-table-wrap" id="hAcc"></div>
-        </div>
 
         <div class="home-grid">
           <div class="home-left">
@@ -101,10 +96,6 @@
         Sales.view.ym = i === months.length - 1 ? null : months[i]; this.paintSales();
       };
       U.$('#hDistSeg', el).onclick = (e) => { const b = e.target.closest('[data-d]'); if (b) { Sales.view.dist = b.dataset.d; this.paintSales(); } };
-      this.accSort = 'target';
-      this.accView = localStorage.getItem('edcc-accview') || 'dist';
-      U.$('#hAccView', el).onclick = (e) => { const b = e.target.closest('[data-v]'); if (b) { this.accView = b.dataset.v; localStorage.setItem('edcc-accview', this.accView); this.paintSales(); } };
-      U.$('#hAccSort', el).onclick = (e) => { const b = e.target.closest('[data-s]'); if (b) { this.accSort = b.dataset.s; this.paintSales(); } };
       // Alarm banner actions
       U.$('#hAlarm', el).addEventListener('click', (e) => {
         if (e.target.closest('[data-snd]')) { Alarm.test(); setTimeout(() => this.paintAlarm(true), 300); }
@@ -193,19 +184,15 @@
       U.$('#hDistSeg').innerHTML = sc && sc.dists.length > 1 ? [['all', 'Semua']].concat(sc.dists.map((d) => [d, Sales.shortDist(d)]))
         .map(([v, l]) => `<button data-d="${U.esc(v)}" class="${Sales.view.dist === v ? 'active' : ''}">${U.esc(l)}</button>`).join('') : '';
       U.$('#hDistSeg').style.display = sc && sc.dists.length > 1 ? '' : 'none';
-      U.$$('#hAccSort button').forEach((b) => b.classList.toggle('active', b.dataset.s === this.accSort));
-      U.$$('#hAccView button').forEach((b) => b.classList.toggle('active', b.dataset.v === this.accView));
 
       if (!k) {
         U.$('#hSalesMeta').innerHTML = `<span class="badge warn">Belum ada data</span>`;
         U.$('#hSalesNote').innerHTML = '';
-        U.$('#hAccCard').style.display = 'none';
         U.$('#hKpi').innerHTML = [
           ['Sales MTD vs Target', 'banknote'], ['% Achievement', 'percent'], ['Run Rate (proyeksi)', 'gauge'], ['KPI Performance', 'award'],
         ].map(([l, ic]) => this.kpiCard({ label: l, ic, value: '<span class="faint">—</span>', sub: '<span>Klik <b>Sync Data Sales</b> lalu pilih file Target, RF & YTD</span>', bar: { pct: 0 } })).join('');
         return;
       }
-      U.$('#hAccCard').style.display = '';
       U.$('#hSalesMeta').innerHTML = `${icon('fileSheet', 13)}<span>Data s/d <b>${U.fmtDM(k.asOf)}</b></span>·<span title="${new Date(k.updatedAt).toLocaleString('id-ID')}">sync ${U.timeAgo(k.updatedAt)}</span>`;
       const achCls = k.status;
       const spark = BarChart.spark(k.history, { color: 'var(--accent)' });
@@ -241,34 +228,6 @@
       U.$('#hSalesNote').innerHTML = `
         <span>${icon('target', 12)} Cakupan: ${shown.length} distributor · ${k.scope.chans.map((c) => (c === 'MODERN TRADE' ? 'MT' : 'GT')).join(' + ')} · target tersedia: <b>${U.esc(short(k.tDists) || '–')}</b></span>
         <span>${k.lmLabel}: RF <b>${U.fmtRp(k.lmFull)}</b>${o ? ` · resmi <b>${U.fmtRp(o.value)}</b>` : ''} · ach ${U.fmtPct(k.lmAch)} dari target ${U.fmtRp(k.lmTarget)}</span>`;
-
-      const tg = k.timeGone;
-      const cls = (a) => (!isFinite(a) ? '' : (k.isCurrent ? a / tg : a) >= 1 ? 'good' : (k.isCurrent ? a / tg : a) >= 0.9 ? 'warn' : 'bad');
-      const achCell = (a) => `<td class="pc"><div class="pcw"><span class="${cls(a.ach)}">${isFinite(a.ach) ? U.fmtNum(a.ach * 100, 1) + '%' : '<span class="faint">tanpa target</span>'}</span>
-            ${isFinite(a.ach) ? `<div class="progress ${cls(a.ach)}"><span style="width:${U.clamp(a.ach * 100, 0, 100)}%"></span>${k.isCurrent ? `<i class="marker" style="left:${U.clamp(tg * 100, 0, 100)}%"></i>` : ''}</div>` : ''}</div></td>`;
-      const tail = (a) => `${k.isCurrent ? `<td>${isFinite(a.projAch) ? U.fmtPct(a.projAch, 0) : '–'}</td><td>${!a.target ? '–' : a.need > 0 ? U.fmtRp(a.need) : '<span style="color:var(--good)">✓</span>'}</td>` : `<td>${a.target ? U.fmtRp(Math.max(0, a.target - (a.base ?? a.mtd))) : '–'}</td>`}<td>${g(a.growth)}</td>`;
-      const head = (first) => `<thead><tr><th class="l">${first}</th><th>Target</th><th>${k.isCurrent ? 'MTD' : 'Actual'}</th><th>Kontribusi</th><th class="pc">% Ach</th>${k.isCurrent ? '<th>Proyeksi</th><th>Perlu/hari</th>' : '<th>Gap</th>'}<th>vs LM</th></tr></thead>`;
-      const totRow = `<tfoot><tr class="tot"><td class="l"><div class="an">TOTAL</div>${mixed ? `<div class="ad">% Ach basis ${k.basis === 'targeted' ? U.esc(tLbl) : 'semua distributor'}</div>` : ''}</td><td>${U.fmtRp(k.target)}</td><td><b>${U.fmtRp(k.mtdAll)}</b></td><td>100%</td>${achCell(k)}${tail({ ...k, base: k.mtd, need: k.needDaily })}</tr></tfoot>`;
-
-      if (this.accView === 'dist') {
-        const rows = [...k.distributors];
-        if (this.accSort === 'ach') rows.sort((a, b) => (isFinite(b.ach) ? b.ach : -1) - (isFinite(a.ach) ? a.ach : -1));
-        if (this.accSort === 'gap') rows.sort((a, b) => (b.target - b.mtd) - (a.target - a.mtd));
-        U.$('#hAccSub').textContent = `${rows.length} distributor · ${k.isCurrent ? `MTD s/d ${U.fmtDM(k.asOf)} · time gone ${U.fmtPct(tg, 0)}` : 'bulan penuh'}`;
-        U.$('#hAcc').innerHTML = `<table class="acc-table">${head('Distributor')}<tbody>${rows.map((x) => `<tr class="${x.hasTarget ? '' : 'notarget'}">
-            <td class="l"><div class="an">${U.esc(x.short)}</div><div class="ad">${x.chans.map((c) => (c === 'MODERN TRADE' ? 'MT' : 'GT')).join(' + ')}${x.hasTarget ? '' : ' · tanpa target'}</div></td>
-            <td>${x.target ? U.fmtRp(x.target) : '–'}</td><td><b>${U.fmtRp(x.mtd)}</b></td><td>${U.fmtPct(x.share, 0)}</td>${achCell(x)}${tail(x)}</tr>`).join('')}</tbody>${totRow}</table>`;
-      } else {
-        const rows = [...k.accounts];
-        if (this.accSort === 'ach') rows.sort((a, b) => (isFinite(b.ach) ? b.ach : -1) - (isFinite(a.ach) ? a.ach : -1));
-        if (this.accSort === 'gap') rows.sort((a, b) => (b.target - b.mtd) - (a.target - a.mtd));
-        const noTarget = rows.filter((a) => !a.target && a.mtd).length;
-        U.$('#hAccSub').textContent = `${rows.length} account · ${k.isCurrent ? `MTD s/d ${U.fmtDM(k.asOf)} · time gone ${U.fmtPct(tg, 0)}` : 'bulan penuh'}${noTarget ? ` · ${noTarget} account tanpa target` : ''}`;
-        U.$('#hAcc').innerHTML = `<table class="acc-table">${head('Account')}<tbody>${rows.map((a) => `<tr>
-            <td class="l"><div class="an">${U.esc(a.acct)}</div>${a.dists.length ? `<div class="ad">${a.dists.map(U.esc).join(' · ')}</div>` : ''}</td>
-            <td>${a.target ? U.fmtRp(a.target) : '–'}</td><td><b>${U.fmtRp(a.mtd)}</b>${mixed && a.target && a.mtd - a.mtdT > 0.5 ? `<div class="ad" title="MTD di distributor bertarget (dipakai untuk % Ach)">bertarget ${U.fmtRp(a.mtdT)}</div>` : ''}</td>
-            <td>${U.fmtPct(a.share, 0)}</td>${achCell(a)}${tail({ ...a, base: k.basis === 'targeted' ? a.mtdT : a.mtd })}</tr>`).join('')}</tbody>${totRow}</table>`;
-      }
     },
 
     /* ---------- Chart minggu ini (Sen–Sab) ---------- */
