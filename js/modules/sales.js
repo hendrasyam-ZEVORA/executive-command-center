@@ -6,6 +6,8 @@
    Cakupan actual = distributor & market channel yang ADA di file target (apple-to-apple).
    kv: 'salesData' (hasil olahan ringkas), 'salesHandles' (handle file), 'salesCfg' (hari kerja, KPI manual). */
 (function () {
+  const CHANNELS = ['MODERN TRADE', 'GENERAL TRADE'];
+  const distRank = (d) => (/SINAR ANUGERAH.*MAKASSAR/.test(d) ? 0 : /WIRA EKA.*MAKASSAR/.test(d) ? 1 : 2);
   const norm = (s) => String(s ?? '').toUpperCase().replace(/,/g, '.').replace(/\s+/g, ' ').trim();
   const ymOf = (d) => d.slice(0, 7);
   const shortDist = (d) => (/SINAR ANUGERAH/.test(d) ? 'SARB' : /WIRA EKA/.test(d) ? 'WEP' : d.split(' ').slice(0, 2).join(' ')) + (/- (\w+)$/.test(d) ? ' ' + d.match(/- (\w+)$/)[1].replace(/^(\w)(\w*)$/, (m, a, b) => a + b.toLowerCase()) : '');
@@ -17,7 +19,7 @@
   const Sales = {
     data: null,      // { target, rf, ytd, syncedAt }
     handles: {},     // { target, rf, ytd } FileSystemFileHandle
-    cfg: { workdays: 'monsat', kpi: NaN, kpiNote: '' },
+    cfg: { workdays: 'monsat', kpi: NaN, kpiNote: '', dists: null, chans: null, achBasis: 'targeted' },
     view: { ym: null, dist: 'all' },
 
     async load() {
@@ -166,12 +168,18 @@
     },
 
     /* ================= PERHITUNGAN ================= */
+    /* Cakupan: distributor yang Anda cover (default = distributor di file Net Revenue resmi FSS Anda,
+       atau semua distributor di RF) × channel Modern Trade + General Trade. Bisa diubah di ⚙. */
     scope() {
-      const t = this.data && this.data.target;
-      if (!t) return null;
-      const dists = [...new Set(t.rows.map((r) => r.dist))].sort();
-      const chans = [...new Set(t.rows.map((r) => r.ch))];
-      return { dists, chans };
+      const D = this.data; const t = D && D.target;
+      if (!t || !D.rf) return null;
+      const chans = (this.cfg.chans && this.cfg.chans.length ? this.cfg.chans : CHANNELS);
+      const allDists = [...new Set(D.rf.rows.filter((r) => CHANNELS.includes(r.ch)).map((r) => r.dist))].sort();
+      const official = D.ytd ? [...new Set(D.ytd.rows.map((r) => r.dist))].filter((d) => allDists.includes(d)) : [];
+      const def = official.length ? official : allDists;
+      const dists = (this.cfg.dists && this.cfg.dists.length ? this.cfg.dists.filter((d) => allDists.includes(d)) : def).sort((x, y) => distRank(x) - distRank(y) || x.localeCompare(y));
+      const targetDists = [...new Set(t.rows.map((r) => r.dist))];
+      return { dists, chans, allDists, defaultDists: def, targetDists };
     },
     inScope(r, sc, dist) { return sc.dists.includes(r.dist) && sc.chans.includes(r.ch) && (dist === 'all' || r.dist === dist); },
     workdays(ym, uptoDay) {
@@ -200,41 +208,56 @@
       const tRows = D.target.rows.filter((r) => this.inScope(r, sc, dist));
       const sumD = (row, from, to) => { let s = 0; for (const [d, v] of Object.entries(row.d)) if (d >= from && d <= to) s += v; return s; };
 
-      // per account
-      const acc = {};
-      const A = (acct) => acc[acct] || (acc[acct] = { acct, target: 0, mtd: 0, lmSame: 0, lmFull: 0, dists: new Set() });
-      for (const r of tRows) { const a = A(r.acct); a.target += r.m[ym] || 0; if (r.m[ym]) a.dists.add(r.dist); }
+      // distributor yang punya target bulan ini (dalam cakupan)
+      const tDists = new Set(tRows.filter((r) => r.m[ym]).map((r) => r.dist));
+      const lmDays = `${lm}-${U.p2(Math.min(asDay, +lastDayOf(lm).slice(8)))}`;
+      const basis = this.cfg.achBasis === 'total' ? 'total' : 'targeted';
+
+      // per account & per distributor
+      const acc = {}, dst = {};
+      const A = (acct) => acc[acct] || (acc[acct] = { acct, target: 0, mtd: 0, mtdT: 0, lmSame: 0, lmSameT: 0, lmFull: 0, dists: new Set() });
+      const Dd = (d) => dst[d] || (dst[d] = { dist: d, short: shortDist(d), target: 0, lmTarget: 0, mtd: 0, lmSame: 0, lmFull: 0, chans: new Set() });
+      for (const r of tRows) { const a = A(r.acct); a.target += r.m[ym] || 0; if (r.m[ym]) a.dists.add(r.dist); const x = Dd(r.dist); x.target += r.m[ym] || 0; x.lmTarget += r.m[lm] || 0; }
       for (const r of rfRows) {
-        const a = A(r.acct);
-        a.mtd += sumD(r, `${ym}-01`, asOf);
-        a.lmSame += sumD(r, `${lm}-01`, `${lm}-${U.p2(Math.min(asDay, +lastDayOf(lm).slice(8)))}`);
-        a.lmFull += sumD(r, `${lm}-01`, lastDayOf(lm));
-        if (a.mtd) a.dists.add(r.dist);
+        const a = A(r.acct); const t = tDists.has(r.dist);
+        const m = sumD(r, `${ym}-01`, asOf), ls = sumD(r, `${lm}-01`, lmDays), lf = sumD(r, `${lm}-01`, lastDayOf(lm));
+        a.mtd += m; a.lmSame += ls; a.lmFull += lf; if (t) { a.mtdT += m; a.lmSameT += ls; }
+        if (m) a.dists.add(r.dist);
+        const x = Dd(r.dist); x.mtd += m; x.lmSame += ls; x.lmFull += lf; if (m || lf) x.chans.add(r.ch);
       }
+      const B = (a) => (basis === 'targeted' ? a.mtdT : a.mtd);
       const accounts = Object.values(acc).filter((a) => a.target || a.mtd || a.lmSame || a.lmFull)
-        .map((a) => ({ ...a, dists: [...a.dists].map(shortDist), ach: a.target ? a.mtd / a.target : NaN, growth: a.lmSame > 0 ? a.mtd / a.lmSame - 1 : NaN }));
+        .map((a) => ({ ...a, dists: [...a.dists].sort((x, y) => distRank(x) - distRank(y)).map(shortDist), ach: a.target ? B(a) / a.target : NaN, growth: a.lmSame > 0 ? a.mtd / a.lmSame - 1 : NaN }));
+      const distributors = Object.values(dst).filter((x) => x.target || x.mtd || x.lmFull)
+        .map((x) => ({ ...x, chans: [...x.chans], hasTarget: tDists.has(x.dist), ach: x.target ? x.mtd / x.target : NaN, growth: x.lmSame > 0 ? x.mtd / x.lmSame - 1 : NaN }))
+        .sort((x, y) => distRank(x.dist) - distRank(y.dist) || y.mtd - x.mtd);
 
-      const target = accounts.reduce((s, a) => s + a.target, 0);
-      const mtd = accounts.reduce((s, a) => s + a.mtd, 0);
-      const lmSame = accounts.reduce((s, a) => s + a.lmSame, 0);
-      const lmFull = accounts.reduce((s, a) => s + a.lmFull, 0);
-      const lmTarget = tRows.reduce((s, r) => s + (r.m[lm] || 0), 0);
+      const target = accounts.reduce((s2, a) => s2 + a.target, 0);
+      const mtdAll = accounts.reduce((s2, a) => s2 + a.mtd, 0);
+      const mtdT = accounts.reduce((s2, a) => s2 + a.mtdT, 0);
+      const mtd = basis === 'targeted' ? mtdT : mtdAll; // dasar % achievement
+      const lmSame = accounts.reduce((s2, a) => s2 + a.lmSame, 0);
+      const lmFull = accounts.reduce((s2, a) => s2 + a.lmFull, 0);
+      const lmTarget = tRows.reduce((s2, r) => s2 + (r.m[lm] || 0), 0);
+      const lmTDists = new Set(tRows.filter((r) => r.m[lm]).map((r) => r.dist));
+      const lmFullBase = basis === 'targeted' ? distributors.filter((x) => lmTDists.has(x.dist)).reduce((s2, x) => s2 + x.lmFull, 0) : lmFull;
 
-      // resmi (YTD) bulan lalu & bulan ini — cakupan distributor sama
+      // resmi (YTD) — cakupan distributor sama
       let official = null;
       if (D.ytd) {
         const yRows = D.ytd.rows.filter((r) => sc.dists.includes(r.dist) && (dist === 'all' || r.dist === dist));
-        const tot = (m) => yRows.reduce((s, r) => s + (r.m[m] || 0), 0);
+        const tot = (m, only) => yRows.filter((r) => !only || only.has(r.dist)).reduce((s2, r) => s2 + (r.m[m] || 0), 0);
         const has = D.ytd.months.includes(lm);
-        official = has ? { ym: lm, value: tot(lm), ach: lmTarget ? tot(lm) / lmTarget : NaN, current: D.ytd.months.includes(ym) ? tot(ym) : NaN } : null;
+        official = has ? { ym: lm, value: tot(lm), valueBase: basis === 'targeted' ? tot(lm, lmTDists) : tot(lm), current: D.ytd.months.includes(ym) ? tot(ym) : NaN } : null;
+        if (official) official.ach = lmTarget ? official.valueBase / lmTarget : NaN;
       }
 
-      // kumulatif harian (sparkline)
+      // kumulatif harian (sparkline, semua distributor)
       const days = []; let cum = 0;
       for (let d = 1; d <= asDay; d++) {
-        const ds = `${ym}-${U.p2(d)}`; let s = 0;
-        for (const r of rfRows) s += r.d[ds] || 0;
-        cum += s; days.push(cum);
+        const ds = `${ym}-${U.p2(d)}`; let s2 = 0;
+        for (const r of rfRows) s2 += r.d[ds] || 0;
+        cum += s2; days.push(cum);
       }
 
       const total = this.workdays(ym);
@@ -244,19 +267,22 @@
       const timeGone = elapsed / total;
       const daily = mtd / elapsed;
       const projection = isCurrent ? daily * total : mtd;
+      const projAll = isCurrent ? (mtdAll / elapsed) * total : mtdAll;
       const projAch = target ? projection / target : NaN;
       const gap = Math.max(0, target - mtd);
       const needDaily = remaining ? gap / remaining : gap;
       const pace = isFinite(ach) ? (isCurrent ? ach / timeGone : ach) : NaN;
       const status = !isFinite(pace) ? '' : pace >= 1 ? 'good' : pace >= 0.9 ? 'warn' : 'bad';
       let kpi = this.cfg.kpi; if (isFinite(kpi) && kpi > 1.5) kpi /= 100;
-      accounts.forEach((a) => { a.proj = isCurrent ? (a.mtd / elapsed) * total : a.mtd; a.projAch = a.target ? a.proj / a.target : NaN; a.need = remaining ? Math.max(0, a.target - a.mtd) / remaining : 0; });
+      const proj = (v) => (isCurrent ? (v / elapsed) * total : v);
+      accounts.forEach((a) => { a.proj = proj(B(a)); a.projAch = a.target ? a.proj / a.target : NaN; a.need = remaining ? Math.max(0, a.target - B(a)) / remaining : 0; a.share = mtdAll ? a.mtd / mtdAll : 0; });
+      distributors.forEach((x) => { x.proj = proj(x.mtd); x.projAch = x.target ? x.proj / x.target : NaN; x.need = remaining ? Math.max(0, x.target - x.mtd) / remaining : 0; x.share = mtdAll ? x.mtd / mtdAll : 0; });
       accounts.sort((a, b) => b.target - a.target || b.mtd - a.mtd);
 
       return {
-        ym, isCurrent, monthLabel: ymLabel(ym), lmLabel: ymLabel(lm), asOf, mtd, target, kpi, lmSame, lmFull, lmTarget,
-        growth: lmSame > 0 ? mtd / lmSame - 1 : NaN, lmAch: lmTarget ? lmFull / lmTarget : NaN,
-        official, accounts, history: days, scope: sc, dist,
+        ym, isCurrent, monthLabel: ymLabel(ym), lmLabel: ymLabel(lm), asOf, mtd, mtdAll, mtdT, nonTarget: mtdAll - mtdT, projAll, basis, target, kpi, lmSame, lmFull, lmTarget,
+        growth: lmSame > 0 ? mtdAll / lmSame - 1 : NaN, lmAch: lmTarget ? lmFullBase / lmTarget : NaN,
+        official, accounts, distributors, tDists: [...tDists], history: days, scope: sc, dist,
         fss: D.target.fss.join(', '), files: { target: D.target.file, rf: D.rf.file, ytd: D.ytd && D.ytd.file }, updatedAt: D.syncedAt,
         total, elapsed, remaining, ach, timeGone, daily, projection, projAch, gap, needDaily, pace, status,
       };
@@ -293,12 +319,11 @@
         for (const ym of months) { self.view.ym = ym; const k = self.compute(); out.push({ ym, k }); }
         self.view.ym = keep;
         return `<div class="grid-preview" style="max-height:none"><table style="width:100%">
-          <tr><th style="text-align:left">Bulan</th><th>Target</th><th>Actual RF</th><th>% Ach RF</th><th>Net Revenue resmi</th><th>% Ach resmi</th><th>Data s/d</th></tr>
+          <tr><th style="text-align:left">Bulan</th><th>Target</th><th>RF semua distributor</th><th>RF bertarget</th><th>% Ach</th><th>Net Revenue resmi</th><th>Data s/d</th></tr>
           ${out.map(({ ym, k }) => {
             const off = D.ytd ? D.ytd.rows.filter((r) => k.scope.dists.includes(r.dist)).reduce((s, r) => s + (r.m[ym] || 0), 0) : NaN;
-            return `<tr><td style="text-align:left;cursor:default">${ymLabel(ym)}</td><td style="text-align:right">${U.fmtNum(k.target)}</td><td style="text-align:right">${U.fmtNum(k.mtd)}</td>
-              <td style="text-align:right"><b>${U.fmtPct(k.ach)}</b></td><td style="text-align:right">${isFinite(off) ? U.fmtNum(off) : '–'}</td>
-              <td style="text-align:right">${isFinite(off) && k.target ? U.fmtPct(off / k.target) : '–'}</td><td>${U.fmtDM(k.asOf)}</td></tr>`;
+            return `<tr><td style="text-align:left;cursor:default">${ymLabel(ym)}</td><td style="text-align:right">${U.fmtNum(k.target)}</td><td style="text-align:right">${U.fmtNum(k.mtdAll)}</td>
+              <td style="text-align:right">${U.fmtNum(k.mtdT)}</td><td style="text-align:right"><b>${U.fmtPct(k.ach)}</b></td><td style="text-align:right">${isFinite(off) ? U.fmtNum(off) : '–'}</td><td>${U.fmtDM(k.asOf)}</td></tr>`;
           }).join('')}</table></div>`;
       };
       const sc = self.scope();
@@ -314,7 +339,13 @@
             ${slot('rf', 'Actual harian (RF)', 'Data_RF_Salesman_Costumer_Performance.xlsx — sheet Sales Per Day')}
             ${slot('ytd', 'Net Revenue resmi (YTD)', 'Data_Performance_YTD.xlsx — untuk riwayat bulan yang sudah tutup')}
           </div>
-          ${sc ? `<div class="hint">${icon('target', 12)} Cakupan mengikuti target${self.data.target.fss.length ? ` (FSS <b>${U.esc(self.data.target.fss.join(', '))}</b>)` : ''}: ${sc.dists.map((d) => `<span class="badge">${U.esc(shortDist(d))}</span>`).join(' ')} · channel ${sc.chans.map((c) => `<span class="badge">${U.esc(c)}</span>`).join(' ')}</div>` : ''}
+          ${sc ? `<div class="field"><label>Distributor yang Anda cover</label>
+            <div class="chk-grid" id="sDists">${sc.allDists.map((d) => `<label><input type="checkbox" class="chk" value="${U.esc(d)}" ${sc.dists.includes(d) ? 'checked' : ''}/>
+              <span>${U.esc(shortDist(d))}${sc.targetDists.includes(d) ? ' <span class="badge good">bertarget</span>' : ''}${sc.defaultDists.includes(d) ? '' : ' <span class="badge">di luar FSS</span>'}</span></label>`).join('')}</div>
+            <span class="hint">Default = distributor di file Net Revenue resmi${self.data.ytd && self.data.ytd.fss ? ` (FSS ${U.esc(self.data.ytd.fss)})` : ''}. Target hanya tersedia untuk distributor bertanda “bertarget”.</span></div>
+          <div class="field-row"><div class="field"><label>Channel</label><div class="chk-grid" id="sChans">${CHANNELS.map((c) => `<label><input type="checkbox" class="chk" value="${c}" ${sc.chans.includes(c) ? 'checked' : ''}/><span>${c === 'MODERN TRADE' ? 'Modern Trade' : 'General Trade'}</span></label>`).join('')}</div></div>
+            <div class="field"><label>Basis % Achievement</label><div class="seg" id="sBasis"><button data-v="targeted">Distributor bertarget</button><button data-v="total">Total semua</button></div>
+              <span class="hint">“Bertarget” = apple-to-apple (disarankan). “Total” membandingkan semua distributor dengan target yang hanya mencakup sebagian.</span></div></div>` : ''}
           <div class="field"><label>Validasi angka (cakupan target)</label><div id="sVal">${validation()}</div></div>
           <div class="field-row" style="border-top:1px solid var(--border);padding-top:12px">
             <div class="field"><label>Hari kerja untuk Run Rate</label>
@@ -329,19 +360,31 @@
             onClick: async (ctx) => {
               const raw = U.$('#sKpi', ctx.el).value.trim();
               self.cfg.kpi = raw ? U.toNum(raw.replace('%', '')) : NaN; // 92 → 92% ; 0,92 → 92%
+              const ds = U.$$('#sDists input:checked', ctx.el).map((i) => i.value), cs = U.$$('#sChans input:checked', ctx.el).map((i) => i.value);
+              if (U.$('#sDists', ctx.el)) {
+                if (!ds.length || !cs.length) { U.toast('Pilih minimal 1 distributor dan 1 channel', 'warn'); return false; }
+                const sc2 = self.scope();
+                self.cfg.dists = ds.length === sc2.defaultDists.length && ds.every((d) => sc2.defaultDists.includes(d)) ? null : ds;
+                self.cfg.chans = cs.length === CHANNELS.length ? null : cs;
+                if (self.view.dist !== 'all' && !ds.includes(self.view.dist)) self.view.dist = 'all';
+              }
               await self.saveCfg();
             },
           },
         ],
-        onMount: (el) => {
+        onMount: (el, ctx) => {
+          const bb = U.$('#sBasis', el);
+          if (bb) { const pb = () => U.$$('button', bb).forEach((b) => b.classList.toggle('active', b.dataset.v === (self.cfg.achBasis || 'targeted'))); bb.onclick = (e) => { const b = e.target.closest('button'); if (b) { self.cfg.achBasis = b.dataset.v; pb(); U.$('#sVal', el).innerHTML = validation(); } }; pb(); }
           const box = U.$('#sWd', el);
           const paint = () => U.$$('button', box).forEach((b) => b.classList.toggle('active', b.dataset.v === self.cfg.workdays));
           box.onclick = (e) => { const b = e.target.closest('button'); if (b) { self.cfg.workdays = b.dataset.v; paint(); U.$('#sVal', el).innerHTML = validation(); } }; paint();
           U.$('#sPick', el).onclick = async () => {
             const r = await self.pickFiles(); if (!r) return;
             U.$('#sStatus', el).innerHTML = `${icon('refresh', 12)} Membaca ${r.files.length} file… (file RF besar butuh beberapa detik)`;
+            const hadScope = !!U.$('#sDists', el);
             const ok = await self.ingest(r.files, r.byName);
             U.$('#sStatus', el).textContent = ok ? 'Selesai' : 'Gagal — lihat pesan';
+            if (ok && !hadScope && self.scope()) { ctx.close(); return self.configure(); } // tampilkan pilihan distributor
             U.$('#sSlots', el).innerHTML = slot('target', 'Target STT Net', '–') + slot('rf', 'Actual harian (RF)', '–') + slot('ytd', 'Net Revenue resmi (YTD)', 'Opsional');
             U.$('#sVal', el).innerHTML = validation();
           };

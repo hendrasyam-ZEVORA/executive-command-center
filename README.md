@@ -40,7 +40,9 @@ Pintasan: `Alt+1` … `Alt+9` untuk pindah menu · `Ctrl+Enter` simpan modal · 
 2. File dikenali otomatis, tanpa perlu memetakan sel. Di Chrome/Edge, klik **Sync** berikutnya akan membaca ulang file yang sama setelah Excel di-refresh.
 
 Aturan hitung:
-- **Cakupan** = distributor + market channel yang ada di file target (otomatis terbaca dari file target). Actual di luar cakupan tidak ikut dihitung.
+- **Cakupan** = distributor yang Anda cover (default: distributor di file Net Revenue resmi FSS Anda) × Modern Trade + General Trade. Bisa diubah di ⚙.
+- **Sales MTD** = total semua distributor dalam cakupan. **% Achievement** default dihitung apple-to-apple: hanya distributor yang punya target (bisa diganti ke "Total semua" di ⚙).
+- Tabel **Performance** bisa dilihat **Per Distributor** (kontribusi, % ach, proyeksi) atau **Per Account**.
 - **MTD** = jumlah Sales Per Day dari tanggal 1 s/d tanggal data terakhir.
 - **vs LM** = dibanding periode tanggal yang sama bulan lalu. Bila periode bulan lalu ≤ 0 (retur), ditampilkan "–".
 - **Time gone / Run Rate** memakai hari kerja Senin–Sabtu (bisa diubah di ⚙).
