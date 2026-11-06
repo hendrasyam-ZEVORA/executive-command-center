@@ -1,20 +1,19 @@
-/* Sinkron Google Drive — data sama di laptop & HP, terenkripsi ujung-ke-ujung.
-   - Disimpan di folder aplikasi tersembunyi (appDataFolder) Google Drive milik pengguna; scope hanya drive.appdata.
-   - Isi dienkripsi dengan kunci data Kunci Data (AES-256-GCM) SEBELUM diunggah → Google tidak bisa membaca.
+/* Sinkron via GitHub (repo PRIVAT milik pengguna) — data sama di laptop & HP, terenkripsi ujung-ke-ujung.
+   - Gratis, tanpa kartu kredit. Pengguna membuat 1 repo privat (mis. edcc-data) + 1 fine-grained token
+     yang HANYA boleh mengakses repo itu (Contents: Read and write).
+   - Isi dienkripsi dengan kunci data Kunci Data (AES-256-GCM) SEBELUM diunggah → GitHub tidak bisa membaca.
      Karena itu Sinkron mensyaratkan Kunci Data aktif. Perangkat baru membuka data dengan password yang sama.
-   - File Drive:
-       edcc-data.json   → { v, meta (kunci terbungkus, aman), savedAt, device, iv, c }  (c = semua record + tombstone)
-       f_<id>.bin       → satu file lampiran/gambar (record terenkripsi apa adanya)
-   - Penggabungan per record: updatedAt terbaru menang; hapusan dicatat sebagai tombstone.
-   - Login: Google Identity Services (token 1 jam). Client ID OAuth dibuat pengguna sendiri di Google Cloud. */
+   - File di repo:
+       edcc-data.json      → { v, meta (kunci terbungkus, aman), savedAt, device, iv, c }  (c = semua record + tombstone)
+       files/<id>.bin      → satu lampiran/gambar (record terenkripsi apa adanya)
+   - Setiap sinkron menulis 1 commit tanpa induk (riwayat diganti) → ukuran repo tidak membengkak.
+   - Penggabungan per record: updatedAt terbaru menang; hapusan dicatat sebagai tombstone. */
 (function () {
-  const SCOPE = 'https://www.googleapis.com/auth/drive.appdata';
-  const API = 'https://www.googleapis.com/drive/v3';
-  const UP = 'https://www.googleapis.com/upload/drive/v3';
+  const GH = 'https://api.github.com';
   const DATA_NAME = 'edcc-data.json';
-  const LS = { cfg: 'edcc-sync', tok: 'edcc-gtoken', tombs: 'edcc-tombs', force: 'edcc-sync-force', dev: 'edcc-device' };
+  const LS = { cfg: 'edcc-sync', tombs: 'edcc-tombs', force: 'edcc-sync-force', dev: 'edcc-device' };
   const SKIP_KV = new Set(['salesHandles']);
-  const PUSH_DELAY = 10000;
+  const PUSH_DELAY = 15000;
 
   const lsGet = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
   const lsSet = (k, v) => localStorage.setItem(k, JSON.stringify(v));
@@ -22,66 +21,77 @@
   const syncable = (store, id) => store !== 'files' && !(store === 'kv' && (SKIP_KV.has(id) || String(id).startsWith('_')));
 
   const Sync = {
-    cfg: lsGet(LS.cfg, { clientId: '', connected: false, email: '', lastSync: 0, lastError: '' }),
-    state: 'idle', // idle | syncing | error | auth | off
-    timer: null, busy: false, again: false, tokenClient: null,
+    cfg: Object.assign({ provider: 'github', repo: '', token: '', branch: '', connected: false, login: '', lastSync: 0, lastError: '' }, lsGet(LS.cfg, {})),
+    state: 'idle', // idle | pending | syncing | error | auth | off
+    timer: null, busy: false, again: false,
 
     /* ---------- konfigurasi ---------- */
     save() { lsSet(LS.cfg, this.cfg); this.paint(); },
     device() { let d = localStorage.getItem(LS.dev); if (!d) { d = (/Mobi|Android|iPhone/i.test(navigator.userAgent) ? 'HP-' : 'PC-') + U.uid().slice(-5); localStorage.setItem(LS.dev, d); } return d; },
-    ready() { return this.cfg.connected && this.cfg.clientId && Lock.enabled() && DB.key; },
+    ready() { return this.cfg.connected && this.cfg.provider === 'github' && this.cfg.token && Lock.enabled() && DB.key; },
 
-    /* ---------- token Google ---------- */
-    loadGIS() {
-      if (window.google && google.accounts && google.accounts.oauth2) return Promise.resolve();
-      if (this._gis) return this._gis;
-      this._gis = new Promise((res, rej) => {
-        const s = document.createElement('script'); s.src = 'https://accounts.google.com/gsi/client'; s.async = true;
-        s.onload = () => res(); s.onerror = () => { this._gis = null; rej(new Error('Tidak bisa memuat login Google (cek internet)')); };
-        document.head.appendChild(s);
-      });
-      return this._gis;
-    },
-    token() { const t = lsGet(LS.tok, null); return t && t.exp > Date.now() + 60000 ? t.access : null; },
-    async login(interactive) {
-      await this.loadGIS();
-      return new Promise((res, rej) => {
-        const tc = google.accounts.oauth2.initTokenClient({
-          client_id: this.cfg.clientId, scope: SCOPE,
-          callback: (r) => { if (r.error) return rej(new Error(r.error_description || r.error)); lsSet(LS.tok, { access: r.access_token, exp: Date.now() + (r.expires_in || 3600) * 1000 }); res(r.access_token); },
-          error_callback: (e) => rej(new Error(e.type === 'popup_closed' ? 'Jendela login ditutup' : e.type === 'popup_failed_to_open' ? 'Popup login diblokir browser — klik tombol Sinkron' : (e.message || e.type))),
-        });
-        tc.requestAccessToken({ prompt: interactive ? (this.cfg.email ? '' : 'consent') : '', login_hint: this.cfg.email || undefined });
-      });
-    },
-    async api(path, { method = 'GET', body, headers = {}, base = API, raw = false } = {}) {
-      const tok = this.token(); if (!tok) { const e = new Error('Perlu login Google'); e.auth = true; throw e; }
-      const r = await fetch(base + path, { method, body, headers: { Authorization: 'Bearer ' + tok, ...headers } });
-      if (r.status === 401) { localStorage.removeItem(LS.tok); const e = new Error('Sesi Google berakhir'); e.auth = true; throw e; }
-      if (!r.ok) throw new Error(`Drive ${r.status}: ${(await r.text()).slice(0, 160)}`);
+    /* ---------- GitHub API ---------- */
+    async gh(path, { method = 'GET', body, accept = 'application/vnd.github+json', raw = false, ok404 = false } = {}) {
+      const c = this.cfg;
+      const url = path.startsWith('/repos/') || path.startsWith('/user') ? GH + path : `${GH}/repos/${c.repo}${path}`;
+      let r;
+      try {
+        r = await fetch(url, { method, cache: 'no-store', body: body ? JSON.stringify(body) : undefined,
+          headers: { Authorization: 'Bearer ' + c.token, Accept: accept, 'X-GitHub-Api-Version': '2022-11-28', ...(body ? { 'Content-Type': 'application/json' } : {}) } });
+      } catch { throw new Error('Tidak bisa menghubungi GitHub (cek internet)'); }
+      if (r.status === 401) { const e = new Error('Token GitHub tidak valid / kedaluwarsa — buat token baru'); e.auth = true; throw e; }
+      if (r.status === 403 || r.status === 404) {
+        if (ok404 && r.status === 404) return null;
+        const t = await r.text();
+        if (/rate limit/i.test(t)) throw new Error('Batas pemakaian GitHub tercapai, coba lagi beberapa menit lagi');
+        const e = new Error(r.status === 404 ? `Repo "${c.repo}" tidak ditemukan / token tidak punya akses ke repo itu` : 'Token tidak punya izin "Contents: Read and write" pada repo ini'); e.auth = true; throw e;
+      }
+      if (r.status === 409 && ok404) return null; // repo kosong
+      if (!r.ok) throw new Error(`GitHub ${r.status}: ${(await r.text()).slice(0, 160)}`);
       if (raw) return r;
       return r.status === 204 ? null : r.json();
     },
-    async listFiles() {
-      let out = [], page = '';
-      do {
-        const j = await this.api(`/files?spaces=appDataFolder&pageSize=1000&fields=nextPageToken,files(id,name,modifiedTime,size)${page ? '&pageToken=' + page : ''}`);
-        out = out.concat(j.files || []); page = j.nextPageToken || '';
-      } while (page);
-      return out;
+    async repoInfo() {
+      const j = await this.gh('');
+      if (!j.private) throw new Error(`Repo "${this.cfg.repo}" PUBLIK — ubah jadi Private dulu (Settings → Danger Zone)`);
+      if (j.permissions && !j.permissions.push) { const e = new Error('Token hanya bisa membaca — ubah izin Contents menjadi "Read and write"'); e.auth = true; throw e; }
+      this.cfg.branch = j.default_branch || 'main';
+      if (j.owner && !this.cfg.login) this.cfg.login = j.owner.login;
+      return j;
     },
-    async upload(name, blob, existingId) {
-      if (existingId) return this.api(`/files/${existingId}?uploadType=media`, { base: UP, method: 'PATCH', body: blob });
-      const b = 'edcc' + U.uid();
-      const body = new Blob([`--${b}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify({ name, parents: ['appDataFolder'] })}\r\n--${b}\r\nContent-Type: application/octet-stream\r\n\r\n`, blob, `\r\n--${b}--`]);
-      return this.api('/files?uploadType=multipart&fields=id,name', { base: UP, method: 'POST', body, headers: { 'Content-Type': 'multipart/related; boundary=' + b } });
+    async head() { // → { commit, tree, files: {path: {sha,size}} } atau null bila repo kosong
+      const ref = await this.gh(`/git/ref/heads/${this.cfg.branch}`, { ok404: true });
+      if (!ref) return null;
+      const commit = ref.object.sha;
+      const cm = await this.gh(`/git/commits/${commit}`);
+      const t = await this.gh(`/git/trees/${cm.tree.sha}?recursive=1`);
+      const files = {}; for (const e of t.tree) if (e.type === 'blob') files[e.path] = { sha: e.sha, size: e.size };
+      return { commit, tree: cm.tree.sha, files };
+    },
+    async blob(sha) { return new Uint8Array(await (await this.gh(`/git/blobs/${sha}`, { accept: 'application/vnd.github.raw+json', raw: true })).arrayBuffer()); },
+    async bootstrap() { // repo baru tanpa commit → buat README lewat Contents API
+      const txt = '# Data sinkron Executive Daily Command Center\n\nIsi repo ini terenkripsi. Jangan diedit manual dan jangan dijadikan publik.\n';
+      await this.gh('/contents/README.md', { method: 'PUT', body: { message: 'init', content: DB.b64(new TextEncoder().encode(txt)) } });
+    },
+    async commit(base, writes, deletes, msg) { // writes: {path: Uint8Array}, deletes: [path]
+      const entries = [];
+      for (const [path, u8] of Object.entries(writes)) {
+        const b = await this.gh('/git/blobs', { method: 'POST', body: { content: DB.b64(u8), encoding: 'base64' } });
+        entries.push({ path, mode: '100644', type: 'blob', sha: b.sha });
+      }
+      for (const path of deletes) entries.push({ path, mode: '100644', type: 'blob', sha: null });
+      const tree = await this.gh('/git/trees', { method: 'POST', body: { base_tree: base.tree, tree: entries } });
+      const c = await this.gh('/git/commits', { method: 'POST', body: { message: msg, tree: tree.sha, parents: [] } });
+      const now = await this.gh(`/git/ref/heads/${this.cfg.branch}`);
+      if (now.object.sha !== base.commit) { const e = new Error('Perangkat lain baru saja sinkron — mengulang'); e.retry = true; throw e; }
+      await this.gh(`/git/refs/heads/${this.cfg.branch}`, { method: 'PATCH', body: { sha: c.sha, force: true } });
     },
 
     /* ---------- tombstone ---------- */
     tombs() { return lsGet(LS.tombs, {}); },
     onChange(store, id, deleted) {
       if (store === DB.META) {
-        if (deleted && Sync.cfg.connected) { Sync.cfg.connected = false; Sync.save(); U.toast('Sinkron Google Drive diputus karena enkripsi dimatikan', 'warn', 5000); }
+        if (deleted && Sync.cfg.connected) { Sync.cfg.connected = false; Sync.save(); U.toast('Sinkron diputus karena enkripsi dimatikan', 'warn', 5000); }
         else if (Sync.cfg.connected) Sync.schedule();
         return;
       }
@@ -133,82 +143,85 @@
     },
 
     /* ---------- siklus sinkron ---------- */
-    async run(interactive = false) {
-      if (!this.cfg.connected) return;
+    async run(interactive = false, tries = 0) {
+      if (!this.cfg.connected || !this.cfg.token) return;
       if (Lock.enabled() && !DB.key) return; // layar kunci aktif
-      if (!Lock.enabled() && !interactive) { this.state = 'off'; this.cfg.lastError = 'Kunci Data belum aktif'; this.paint(); return; }
       if (this.busy) { this.again = true; return; }
       if (document.querySelector('.modal-back, #lockscreen') && !interactive) { this.schedule(15000); return; } // jangan ganggu saat mengetik
       this.busy = true; this.state = 'syncing'; this.paint();
+      let retry = false;
       try {
-        if (!this.token()) {
-          if (!interactive) { this.state = 'auth'; this.busy = false; this.paint(); return; }
-          await this.login(true);
-        }
-        if (!this.cfg.email) { try { const a = await this.api('/about?fields=user(emailAddress)'); this.cfg.email = a.user.emailAddress; } catch {} }
-        const files = await this.listFiles();
-        const dataFile = files.find((f) => f.name === DATA_NAME);
+        if (!this.cfg.branch) await this.repoInfo();
+        let base = await this.head();
+        if (!base) { if (!Lock.enabled()) throw new Error('Repo masih kosong. Aktifkan Kunci Data di perangkat utama lalu sinkron dari sana dulu.'); await this.bootstrap(); base = await this.head(); }
+        const dataFile = base.files[DATA_NAME];
         let remote = null;
-        if (!dataFile && !Lock.enabled()) throw new Error('Belum ada data di Drive. Aktifkan Kunci Data di perangkat utama lalu sinkron dari sana dulu.');
+        if (!dataFile && !Lock.enabled()) throw new Error('Belum ada data di repo. Aktifkan Kunci Data di perangkat utama lalu sinkron dari sana dulu.');
         if (dataFile) {
-          const env = await (await this.api(`/files/${dataFile.id}?alt=media`, { raw: true })).json();
+          const env = JSON.parse(new TextDecoder().decode(await this.blob(dataFile.sha)));
           if (!(await this.adoptRemoteKey(env.meta))) throw new Error('Password dibatalkan — sinkron dihentikan');
           remote = await DB.C.decJSON(DB.key, DB.unb64(env.iv), DB.unb64(env.c));
         }
         const force = localStorage.getItem(LS.force) === '1';
         const local = await this.localDoc();
         const { merged, toLocal, delLocal, changedRemote } = merge(local, force ? null : remote);
-        // terapkan ke lokal
         let touched = 0;
         for (const [s, rows] of Object.entries(toLocal)) if (rows.length) { await DB.putMany(s, rows, { keepTime: true, silent: true }); touched += rows.length; }
         for (const [s, ids] of Object.entries(delLocal)) for (const id of ids) { await DB.del(s, id, { silent: true }); touched++; }
         lsSet(LS.tombs, merged.tombs);
-        // file lampiran
-        const remoteBins = Object.fromEntries(files.filter((f) => /^f_.*\.bin$/.test(f.name)).map((f) => [f.name.slice(0, -4), f]));
+        // lampiran
+        const writes = {}, deletes = [];
+        const remoteBins = {}; for (const [p, f] of Object.entries(base.files)) { const m = /^files\/(.+)\.bin$/.exec(p); if (m) remoteBins[m[1]] = { ...f, path: p }; }
         const localFiles = (await DB.rawAll('files')).filter((r) => r.e);
         const localIds = new Set(localFiles.map((r) => r.id));
         let up = 0, down = 0;
-        for (const r of localFiles) if (!remoteBins[r.id] && !merged.tombs['files|' + r.id]) { await this.upload(r.id + '.bin', packBin(r)); up++; }
+        for (const r of localFiles) if (!remoteBins[r.id] && !merged.tombs['files|' + r.id]) { writes[`files/${r.id}.bin`] = packBin(r); up++; }
         for (const [id, f] of Object.entries(remoteBins)) {
-          if (merged.tombs['files|' + id] || (force && !localIds.has(id))) { await this.api(`/files/${f.id}`, { method: 'DELETE' }).catch(() => {}); continue; }
-          if (!localIds.has(id)) { const buf = new Uint8Array(await (await this.api(`/files/${f.id}?alt=media`, { raw: true })).arrayBuffer()); await DB.rawPutMany('files', [unpackBin(buf)]); down++; }
+          if (merged.tombs['files|' + id] || (force && !localIds.has(id))) { deletes.push(f.path); continue; }
+          if (!localIds.has(id)) { await DB.rawPutMany('files', [unpackBin(await this.blob(f.sha))]); down++; }
         }
         for (const k of Object.keys(merged.tombs)) if (k.startsWith('files|')) { const id = k.slice(6); if (localIds.has(id)) { await DB.del('files', id, { silent: true }); touched++; } }
-        // unggah dokumen gabungan bila berubah
+        // dokumen gabungan
         if (changedRemote || force || !dataFile) {
           const meta = await DB.lockMeta(); const { id, ...lock } = meta;
           if (!lock.probe) { const iv = crypto.getRandomValues(new Uint8Array(12)); const c = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, DB.key, new Uint8Array(4))); lock.probe = { b64: DB.b64(cat(iv, c)) }; await DB.setLockMeta({ ...meta, probe: lock.probe }, { silent: true }); }
           const enc = await DB.C.encJSON(DB.key, merged);
           const env = { v: 1, app: 'edcc', savedAt: Date.now(), device: this.device(), meta: b64obj(lock), iv: DB.b64(enc.iv), c: DB.b64(enc.c) };
-          await this.upload(DATA_NAME, new Blob([JSON.stringify(env)], { type: 'application/json' }), dataFile && dataFile.id);
+          writes[DATA_NAME] = new TextEncoder().encode(JSON.stringify(env));
         }
+        if (Object.keys(writes).length || deletes.length) await this.commit(base, writes, deletes, `sync ${this.device()} ${new Date().toISOString()}`);
         localStorage.removeItem(LS.force);
         this.cfg.lastSync = Date.now(); this.cfg.lastError = ''; this.state = 'idle'; this.save();
         if (touched || down) { await App.reloadData(); U.toast(`Sinkron: ${touched + down} perubahan dari perangkat lain diterapkan`, 'good', 3500); }
         else if (interactive) U.toast(`Sinkron selesai${up ? ` · ${up} file diunggah` : ''}`, 'good', 2500);
       } catch (e) {
-        console.warn('sync', e);
-        this.state = e.auth ? 'auth' : 'error'; this.cfg.lastError = e.message; this.save();
-        if (interactive) U.toast('Sinkron gagal: ' + e.message, 'bad', 5000);
+        if (e.retry && tries < 3) retry = true;
+        else {
+          console.warn('sync', e);
+          this.state = e.auth ? 'auth' : 'error'; this.cfg.lastError = e.message; this.save();
+          if (interactive) U.toast('Sinkron gagal: ' + e.message, 'bad', 6000);
+        }
       } finally {
         this.busy = false; this.paint();
-        if (this.again) { this.again = false; this.schedule(2000); }
+        if (retry) setTimeout(() => this.run(interactive, tries + 1), 1500 + Math.random() * 2000);
+        else if (this.again) { this.again = false; this.schedule(2000); }
       }
     },
 
     /* ---------- UI ---------- */
     init() {
+      if (this.cfg.provider !== 'github') { this.cfg = { provider: 'github', repo: '', token: '', branch: '', connected: false, login: '', lastSync: 0, lastError: '' }; lsSet(LS.cfg, this.cfg); localStorage.removeItem('edcc-gtoken'); }
       DB.onChange = (s, id, d) => this.onChange(s, id, d);
       const foot = document.querySelector('.sb-foot');
       const box = document.createElement('div'); box.id = 'sbSync';
       foot.insertBefore(box, document.getElementById('sbLock') || document.getElementById('sbBackup'));
-      box.addEventListener('click', () => (this.cfg.connected && this.state === 'auth' ? this.run(true) : this.settings()));
+      box.addEventListener('click', () => (this.cfg.connected && this.state === 'error' && !/token|izin|akses|repo/i.test(this.cfg.lastError) ? this.run(true) : this.settings()));
       document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && this.ready() && Date.now() - this.cfg.lastSync > 60000) this.run(); });
       setInterval(() => { if (document.visibilityState === 'visible' && this.ready()) this.run(); }, 5 * 60000);
       setInterval(() => this.paint(), 30000);
       this.paint();
     },
-    afterBoot() { if (this.cfg.connected) { this.loadGIS().catch(() => {}); this.run(); } },
+    afterBoot() { if (this.cfg.connected) this.run(); },
     paint() {
       const el = document.getElementById('sbSync'); if (!el) return;
       const c = this.cfg;
@@ -216,50 +229,54 @@
       if (!c.connected) { txt = 'Sinkron HP & laptop'; cls = 'muted'; }
       else if (!Lock.enabled()) { txt = 'Sinkron: aktifkan kunci data'; cls = 'warn'; }
       else if (this.state === 'syncing') { ic = 'refresh'; txt = 'Menyinkron…'; }
-      else if (this.state === 'auth') { ic = 'user'; txt = 'Klik untuk sinkron (login Google)'; cls = 'warn'; }
+      else if (this.state === 'auth') { ic = 'key'; txt = 'Sinkron: periksa token'; cls = 'warn'; }
       else if (this.state === 'error') { txt = 'Sinkron gagal — klik'; cls = 'bad'; }
       else if (this.state === 'pending') { txt = 'Menunggu sinkron…'; }
       else txt = c.lastSync ? `Tersinkron ${U.timeAgo(c.lastSync)}` : 'Belum sinkron';
-      el.innerHTML = `<div class="sb-alarm sb-sync ${cls}" title="${U.esc(c.lastError || (c.email ? 'Google Drive · ' + c.email : 'Sinkron Google Drive'))}">${icon(ic, 15, this.state === 'syncing' ? 'spin' : '')}<span class="t">${U.esc(txt)}</span></div>`;
+      el.innerHTML = `<div class="sb-alarm sb-sync ${cls}" title="${U.esc(c.lastError || (c.repo ? 'GitHub · ' + c.repo : 'Sinkron HP & laptop'))}">${icon(ic, 15, this.state === 'syncing' ? 'spin' : '')}<span class="t">${U.esc(txt)}</span></div>`;
     },
 
     settings() {
-      const c = this.cfg; const origin = location.origin;
+      const c = this.cfg;
       const lockOff = !Lock.enabled();
       const steps = `<ol class="setup-steps">
-          <li>Buka <b>console.cloud.google.com</b> → buat project baru (mis. <i>Command Center</i>).</li>
-          <li><b>APIs &amp; Services → Library</b> → cari <b>Google Drive API</b> → <b>Enable</b>.</li>
-          <li><b>Google Auth Platform</b> (OAuth consent screen) → <b>Get started</b>: nama app, email Anda, Audience <b>External</b> → selesai. Di <b>Audience → Test users</b> tambahkan email Google Anda.</li>
-          <li><b>Data access → Add or remove scopes</b> → centang <code>.../auth/drive.appdata</code> → Save.</li>
-          <li><b>Clients → Create client</b> → tipe <b>Web application</b> → <b>Authorized JavaScript origins</b>: <code>${U.esc(origin)}</code> → Create.</li>
-          <li>Salin <b>Client ID</b> (berakhiran <code>.apps.googleusercontent.com</code>) dan tempel di bawah.</li></ol>`;
+          <li>Di <b>github.com</b> klik <b>+ → New repository</b>. Nama: <code>edcc-data</code>, pilih <b>Private</b> → <b>Create repository</b>.</li>
+          <li>Buka <b>Settings (foto profil) → Developer settings → Personal access tokens → Fine-grained tokens → Generate new token</b>.</li>
+          <li>Token name: <i>Command Center</i>. Expiration: pilih yang terlama / <b>No expiration</b> bila tersedia.</li>
+          <li><b>Repository access → Only select repositories</b> → pilih <code>edcc-data</code> saja.</li>
+          <li><b>Permissions → Repository permissions → Contents</b> → <b>Read and write</b>. (Metadata otomatis Read-only.)</li>
+          <li><b>Generate token</b> → salin token (<code>github_pat_…</code>) dan tempel di bawah. Token hanya tampil sekali.</li></ol>`;
       U.modal({
-        title: 'Sinkron Google Drive', icon: 'cloud', size: 'lg', sticky: true,
-        body: `<div class="callout">${icon('shield', 15)}<div>Data dashboard disalin ke folder aplikasi tersembunyi di <b>Google Drive Anda sendiri</b>, <b>terenkripsi</b> dengan kunci data dashboard — Google tidak bisa membacanya.
-            Buka <b>${U.esc(location.host)}</b> di HP, login Google yang sama, masukkan password dashboard → data sama.</div></div>
-          ${lockOff ? `<div class="callout" style="background:var(--warn-soft)">${icon('lock', 15)}<div><b>Perangkat utama:</b> aktifkan Kunci Data dulu, karena sinkron hanya berjalan bila data terenkripsi. <button class="btn sm" data-sy="lock" style="margin-left:6px">Aktifkan sekarang</button><br>
-              <b>Perangkat kedua (HP):</b> langsung klik <i>Hubungkan</i> lalu masukkan password dashboard dari perangkat utama.</div></div>` : ''}
-          ${c.connected ? `<div class="sum-row" style="margin:0"><div class="card sum"><div class="l">Akun Google</div><div class="v" style="font-size:15px">${U.esc(c.email || '—')}</div><div class="s">perangkat ${U.esc(this.device())}</div></div>
+        title: 'Sinkron HP & laptop (GitHub)', icon: 'cloud', size: 'lg', sticky: true,
+        body: `<div class="callout">${icon('shield', 15)}<div>Data dashboard disalin ke <b>repo GitHub privat milik Anda</b>, <b>terenkripsi</b> dengan kunci data dashboard — GitHub pun tidak bisa membacanya. Gratis, tanpa kartu kredit.
+            Di HP: buka <b>${U.esc(location.host)}</b>, isi repo + token yang sama, masukkan password dashboard → data sama.</div></div>
+          ${lockOff ? `<div class="callout" style="background:var(--warn-soft)">${icon('lock', 15)}<div><b>Perangkat utama (laptop):</b> aktifkan Kunci Data dulu, karena sinkron hanya berjalan bila data terenkripsi. <button class="btn sm" data-sy="lock" style="margin-left:6px">Aktifkan sekarang</button><br>
+              <b>Perangkat kedua (HP):</b> langsung klik <i>Hubungkan</i> lalu masukkan password dashboard dari laptop.</div></div>` : ''}
+          ${c.connected ? `<div class="sum-row" style="margin:0"><div class="card sum"><div class="l">Repo</div><div class="v" style="font-size:15px">${U.esc(c.repo)}</div><div class="s">perangkat ${U.esc(this.device())}</div></div>
               <div class="card sum"><div class="l">Sinkron terakhir</div><div class="v" style="font-size:15px">${c.lastSync ? U.fmtDateTime(c.lastSync) : 'belum'}</div><div class="s" style="color:var(--bad)">${U.esc(c.lastError || '')}</div></div></div>` : ''}
-          <div class="field"><label>Google OAuth Client ID</label><input class="input mono" id="syCid" value="${U.esc(c.clientId)}" placeholder="1234567890-abc...apps.googleusercontent.com"/>
-            <span class="hint">Dibuat sekali saja (gratis). Client ID bukan rahasia; sama untuk HP & laptop.</span></div>
-          <details ${c.clientId ? '' : 'open'}><summary style="cursor:pointer;font-weight:600;font-size:13px">Cara membuat Client ID (±10 menit)</summary>${steps}</details>`,
+          <div class="field"><label>Repo privat (pemilik/nama)</label><input class="input mono" id="syRepo" value="${U.esc(c.repo || 'hendrasyam-ZEVORA/edcc-data')}" placeholder="username/edcc-data" autocapitalize="off" autocorrect="off" spellcheck="false"/></div>
+          <div class="field"><label>Fine-grained token</label><input class="input mono" id="syTok" type="password" value="${U.esc(c.token)}" placeholder="github_pat_…" autocapitalize="off" autocorrect="off" spellcheck="false" autocomplete="off"/>
+            <span class="hint">Token hanya bisa mengakses repo data itu & isinya terenkripsi. Disimpan di browser ini saja. Untuk HP: kirim ke diri sendiri (mis. WA "Message yourself") lalu hapus pesannya.</span></div>
+          <details ${c.token ? '' : 'open'}><summary style="cursor:pointer;font-weight:600;font-size:13px">Cara membuat repo & token (±3 menit)</summary>${steps}</details>`,
         buttons: [
-          ...(c.connected ? [{ label: 'Putuskan', cls: 'danger', onClick: () => { this.cfg.connected = false; this.cfg.email = ''; localStorage.removeItem(LS.tok); this.state = 'idle'; this.save(); U.toast('Sinkron diputus di perangkat ini (data lokal & Drive tetap ada)', 'info', 4000); } }] : []),
+          ...(c.connected ? [{ label: 'Putuskan', cls: 'danger', onClick: () => { Object.assign(this.cfg, { connected: false, token: '', branch: '', lastError: '' }); this.state = 'idle'; this.save(); U.toast('Sinkron diputus di perangkat ini (data lokal & repo tetap ada)', 'info', 4000); } }] : []),
           { label: 'Tutup', cls: 'ghost' },
           {
-            label: c.connected ? 'Sinkron sekarang' : 'Hubungkan Google Drive', cls: 'primary', icon: 'cloud',
+            label: c.connected ? 'Simpan & sinkron' : 'Hubungkan', cls: 'primary', icon: 'cloud',
             onClick: async (ctx) => {
-              const cid = U.$('#syCid', ctx.el).value.trim();
-              if (!/\.apps\.googleusercontent\.com$/.test(cid)) { U.toast('Client ID tidak valid', 'warn'); return false; }
-              this.cfg.clientId = cid; this.save();
-              try { if (!this.token()) await this.login(true); } catch (e) { U.toast('Login Google gagal: ' + e.message, 'bad', 6000); return false; }
-              this.cfg.connected = true; this.save();
+              const repo = U.$('#syRepo', ctx.el).value.trim().replace(/^https?:\/\/github\.com\//, '').replace(/\.git$/, '').replace(/\/$/, '');
+              const tok = U.$('#syTok', ctx.el).value.trim();
+              if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) { U.toast('Isi repo dengan format pemilik/nama', 'warn'); return false; }
+              if (!/^(github_pat_|ghp_)\w+$/.test(tok)) { U.toast('Token tidak valid (harus diawali github_pat_)', 'warn'); return false; }
+              const prev = { ...this.cfg };
+              Object.assign(this.cfg, { repo, token: tok, branch: '' });
+              try { await this.repoInfo(); } catch (e) { Object.assign(this.cfg, prev); U.toast(e.message, 'bad', 7000); return false; }
+              this.cfg.connected = true; this.cfg.lastError = ''; this.save();
               ctx.close(); await this.run(true);
             },
           },
         ],
-        onMount: (el, ctx) => { this.loadGIS().catch(() => {}); el.addEventListener('click', (e) => { if (e.target.closest('[data-sy="lock"]')) { ctx.close(); Lock.settings(); } }); },
+        onMount: (el, ctx) => { el.addEventListener('click', (e) => { if (e.target.closest('[data-sy="lock"]')) { ctx.close(); Lock.settings(); } }); },
       });
     },
   };
@@ -295,7 +312,7 @@
   function cat(a, b) { const o = new Uint8Array(a.length + b.length); o.set(a); o.set(b, a.length); return o; }
   function b64eq(a, b) { if (!a || !b) return false; const x = a instanceof Uint8Array ? a : DB.unb64(a.b64 || a); const y = b instanceof Uint8Array ? b : DB.unb64(b.b64 || b); return x.length === y.length && x.every((v, i) => v === y[i]); }
   function b64obj(o) { return Object.fromEntries(Object.entries(o).map(([k, v]) => [k, v instanceof Uint8Array ? { b64: DB.b64(v) } : v])); }
-  function packBin(r) { const head = new TextEncoder().encode(JSON.stringify({ id: r.id, iv: DB.b64(r.iv), c: DB.b64(r.c), iv2: DB.b64(r.iv2) }) + '\n'); return new Blob([head, r.b], { type: 'application/octet-stream' }); }
+  function packBin(r) { const head = new TextEncoder().encode(JSON.stringify({ id: r.id, iv: DB.b64(r.iv), c: DB.b64(r.c), iv2: DB.b64(r.iv2) }) + '\n'); const b = r.b instanceof Uint8Array ? r.b : new Uint8Array(r.b); return cat(head, b); }
   function unpackBin(u8) { const nl = u8.indexOf(10); const h = JSON.parse(new TextDecoder().decode(u8.subarray(0, nl))); return { id: h.id, e: 1, iv: DB.unb64(h.iv), c: DB.unb64(h.c), iv2: DB.unb64(h.iv2), b: u8.slice(nl + 1) }; }
 
   Sync.merge = merge;
