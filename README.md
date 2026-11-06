@@ -15,7 +15,7 @@ Dashboard kerja harian yang berjalan **100% offline di browser**. Tidak perlu se
 ## Isi Tahap 1
 | Menu | Fitur |
 |---|---|
-| 1. Beranda | Tanggal & jam real-time (WITA), banner alarm + hitung mundur + bunyi, 4 KPI Sales, grafik tugas selesai Sen–Sab, feed Daily & Monthly, 10 berita (Semua / Sepakbola / Ekonomi & Politik / Makassar & Cuaca) |
+| 1. Beranda | Tanggal & jam real-time, banner alarm + hitung mundur + bunyi, 4 KPI Sales + tabel per account, grafik tugas selesai Sen–Sab, feed Daily & Monthly, **Football Hub** (Barcelona & Roma, hasil, statistik, klasemen LaLiga/EPL/Serie A/Bundesliga) |
 | 2. Daily Task | 7 sticky note Senin–Minggu, navigasi minggu, alarm HH:MM, edit (klik dua kali), pindahkan tugas belum selesai ke besok |
 | 3. Monthly Task | Tenggat, catatan, warna, lampiran gambar/PDF (drag-drop / Ctrl+V), opsi **ulangi tiap bulan** |
 | 4. Account | Kartu per account (IDM, SAT, Lotte…), PIC, tombol WA (`wa.me`), email (mailto + salin), checklist & catatan |
@@ -24,9 +24,10 @@ Dashboard kerja harian yang berjalan **100% offline di browser**. Tidak perlu se
 | 7. Promo & Diskon | Timeline Gantt per bulan + garis hari ini, countdown sisa hari, upload & **preview SKP PDF** di dalam aplikasi |
 | 8. Event Monthly | Kanban Preparation / On-Going / Done (drag & drop), PIC, budget, checklist persiapan |
 | 9. Projek Luar | Halaman ala Notion (judul, ikon, catatan bebas) + board Ide / Proses / Selesai per projek |
-| 10. Screenshot Gallery | **Ctrl+V** langsung dari clipboard, drag & drop, tag, cari, lightbox (← → untuk navigasi), unduh |
+| 10. Screenshot Gallery | **Folder per toko** untuk bukti display (foto dikelompokkan per tanggal kunjungan), **Ctrl+V** langsung dari clipboard, drag & drop, pilih banyak → pindah folder, tag, cari, lightbox |
 | 11. Kontak & Bank Email | Direktori Internal / Distributor / Buyer Account / Vendor, WA 1-klik, salin email, mailto, salin semua email, impor PIC dari Account |
 | 12. SHOP | Wishlist & rencana belanja, prioritas, link toko (Tokopedia/Shopee terdeteksi), total estimasi otomatis |
+| Kunci Data | Password + **enkripsi AES-256** semua data di browser, layar kunci, kunci otomatis saat tidak aktif, kode pemulihan, backup ikut terenkripsi |
 | Backup / Restore | Tombol di bawah sidebar: semua data termasuk gambar & PDF jadi 1 file JSON; pengingat bila belum backup ≥ 7 hari |
 
 Pintasan: `Alt+1` … `Alt+9` untuk pindah menu · `Ctrl+Enter` simpan modal · `Esc` tutup.
@@ -62,3 +63,8 @@ Helper bersama: `U.form()` (form modal), `DB.collection(store)` (CRUD + cache), 
 Sidebar → **Backup** → file `edcc-backup-YYYY-MM-DD-HHMM.json`. Di laptop lain: buka aplikasi → **Restore** → pilih file tersebut.
 Catatan: izin "Sync 1-klik" file Excel tidak ikut backup (aturan keamanan browser) → cukup pilih ulang file sekali di ⚙ Sales.
 Jangan commit file backup ke repo publik: isinya data kerja & kontak.
+
+## Keamanan data
+- Data hanya tersimpan di browser perangkat Anda (IndexedDB); repo & situs GitHub Pages hanya berisi kode.
+- Sidebar → **Aktifkan kunci data**: semua record dienkripsi AES-256-GCM. Kunci data dibungkus dengan password (PBKDF2-SHA256, 310.000 iterasi) dan dengan kode pemulihan. Password & kode tidak disimpan.
+- Lupa password → layar kunci → "Lupa password? Pakai kode pemulihan". Tanpa password **dan** kode pemulihan, data tidak bisa dibuka siapa pun.
