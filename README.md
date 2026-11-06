@@ -3,7 +3,7 @@
 Dashboard kerja harian yang berjalan **100% offline di browser**. Tidak perlu server, tidak perlu internet (kecuali panel berita & cuaca).
 
 ## Cara membuka
-**Online (GitHub Pages):** buka link Pages repo ini. **Offline:** unduh/clone repo lalu buka `index.html`.
+**Online:** https://note.hendrasyam.online (GitHub Pages). **Offline:** unduh/clone repo lalu buka `index.html`.
 
 1. Ekstrak folder `edcc/` ke mana saja (mis. `D:\Dashboard\edcc`).
 2. Klik dua kali `index.html` → buka dengan **Chrome atau Edge** (disarankan: fitur Sync Excel 1-klik hanya ada di sini).
